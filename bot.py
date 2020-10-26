@@ -16,6 +16,37 @@ REQUEST_LIST_NAME = range(1)
 CHOOSE_LIST_NAME, ADD_ELEMENT, CHOOSE_ELEMENT_NAME, REMOVE_ELEMENT = range(4)
 REQUEST_ROTATION_NAME, REQUEST_MEMBERS, REQUEST_ROOMS, REQUEST_FREQUENCY, CHOOSE_ROTATION_NAME = range(5)
 
+def register_rotation(job_queue, rotation):
+    if rotation.frequency == Frequency.DAILY:
+        job_queue.run_daily(run_rotation, datetime.time(7, 30), context=rotation)
+        job_queue.run_daily(run_rotation, datetime.time(7, 30), context=rotation)
+    elif rotation.frequency == Frequency.WEEKLY:
+        job_queue.run_daily(run_rotation, datetime.time(7, 30), days=(0,), context=rotation)
+    elif rotation.frequency == Frequency.MONTHLY:
+        job_queue.run_monthly(run_rotation, datetime.time(7, 30), 1, context=rotation)
+    elif rotation.frequency == Frequency.YEARLY:
+        job_queue.run_monthly(run_rotation, datetime.time(7, 30), 1, context=rotation)
+
+def run_rotation(context):
+    rotation_name = context.job.context.name
+    home = context.job.context._home
+    # if want the offset to persist, we need to change the data in _dispatcher
+    # because context is a local copy
+    rotation = context._dispatcher.chat_data[home.chat_id]["home"].rotations[rotation_name]
+
+    completed = s.COMPLETED_ROTATIONS.format(" ".join(rotation.completed))
+    context.bot.send_message(chat_id=rotation._home.chat_id, text=completed)
+    rotation.completed = []
+
+    rotation.offset = (rotation.offset + 1) % len(rotation.members)
+    current = ""
+    for room_number, room in enumerate(rotation.rooms):
+        current += f" - {room}: @{rotation.members[(room_number + rotation.offset) % len(rotation.members)]}\n"
+    
+    context.bot.send_message(chat_id=rotation._home.chat_id, text=s.CURRENT_ROTATIONS.format(rotation.name, current))
+
+
+
 def start(update, context):
     if "is_configured" in context.chat_data.keys() and context.chat_data["is_configured"]:
         context.bot.send_message(chat_id=update.effective_chat.id, text=s.ALREADY_CONFIGURED)
@@ -297,35 +328,6 @@ def remove_rotation_button(update, context):
 
     return ConversationHandler.END
 
-def register_rotation(job_queue, rotation):
-    if rotation.frequency == Frequency.DAILY:
-        job_queue.run_daily(run_rotation, datetime.time(7, 30), context=rotation)
-        job_queue.run_daily(run_rotation, datetime.time(7, 30), context=rotation)
-    elif rotation.frequency == Frequency.WEEKLY:
-        job_queue.run_daily(run_rotation, datetime.time(7, 30), days=(0,), context=rotation)
-    elif rotation.frequency == Frequency.MONTHLY:
-        job_queue.run_monthly(run_rotation, datetime.time(7, 30), 1, context=rotation)
-    elif rotation.frequency == Frequency.YEARLY:
-        job_queue.run_monthly(run_rotation, datetime.time(7, 30), 1, context=rotation)
-
-def run_rotation(context):
-    rotation_name = context.job.context.name
-    home = context.job.context._home
-    # if want the offset to persist, we need to change the data in _dispatcher
-    # because context is a local copy
-    rotation = context._dispatcher.chat_data[home.chat_id]["home"].rotations[rotation_name]
-
-    completed = s.COMPLETED_ROTATIONS.format(" ".join(rotation.completed))
-    context.bot.send_message(chat_id=rotation._home.chat_id, text=completed)
-    rotation.completed = []
-
-    rotation.offset = (rotation.offset + 1) % len(rotation.members)
-    current = ""
-    for room_number, room in enumerate(rotation.rooms):
-        current += f" - {room}: @{rotation.members[(room_number + rotation.offset) % len(rotation.members)]}\n"
-    
-    context.bot.send_message(chat_id=rotation._home.chat_id, text=s.CURRENT_ROTATIONS.format(rotation.name, current))
-
 def show_rotations(update, context):
     response = ""
     for name, rotation in context.chat_data["home"].rotations.items():
@@ -378,6 +380,50 @@ def done_rotation_button(update, context):
 
 
     return ConversationHandler.END
+
+def run_rotation_manually_request_rotation(update, context):
+    if context.chat_data["home"].rotations.keys():
+        keyboard = [
+            [
+                InlineKeyboardButton(s.NONE, callback_data="<END>")
+            ],
+            [
+                InlineKeyboardButton(rotation_name, callback_data=rotation_name) for rotation_name in context.chat_data["home"].rotations.keys()
+            ],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        context.bot.send_message(chat_id=update.effective_chat.id, text=s.CHOOSE_ROTATION, reply_markup=reply_markup)
+        
+        return CHOOSE_ROTATION_NAME
+    
+    context.bot.send_message(chat_id=update.effective_chat.id, text=s.THERE_ARE_NO_ROTATIONS)
+    return ConversationHandler.END
+
+def run_rotation_manually_button(update, context):
+    rotation_name = update.callback_query.data
+    home = context.chat_data["home"]
+
+    if rotation_name != "<END":
+        # if want the offset to persist, we need to change the data in _dispatcher
+        # because context is a local copy
+        rotation = context._dispatcher.chat_data[home.chat_id]["home"].rotations[rotation_name]
+
+        completed = s.COMPLETED_ROTATIONS.format(" ".join(rotation.completed))
+        context.bot.send_message(chat_id=rotation._home.chat_id, text=completed)
+        rotation.completed = []
+
+        rotation.offset = (rotation.offset + 1) % len(rotation.members)
+        current = ""
+        for room_number, room in enumerate(rotation.rooms):
+            current += f" - {room}: @{rotation.members[(room_number + rotation.offset) % len(rotation.members)]}\n"
+        
+        context.bot.send_message(chat_id=update.effective_chat.id, text=s.CURRENT_ROTATIONS.format(rotation.name, current))
+
+        return ConversationHandler.END
+    
+    context.bot.send_message(chat_id=update.effective_chat.id, text=s.OK)
+    return ConversationHandler.END
+
 
 def random_message(update, context):
     context.bot.send_message(chat_id=update.effective_chat.id, text=random.choice(s.RANDOM))
@@ -550,6 +596,19 @@ if __name__ == "__main__":
         per_message=False
     )
 
+    manual_rotation_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("manual_rotation", run_rotation_manually_request_rotation),
+        ],
+        states={
+            CHOOSE_ROTATION_NAME: [
+                CallbackQueryHandler(run_rotation_manually_button),
+            ]
+        },
+        fallbacks=[MessageHandler(Filters.all, general_error_message)],
+        per_message=False
+    )
+
     dispatcher.add_handler(start_conv)
     dispatcher.add_handler(add_user_conv)
     dispatcher.add_handler(add_room_conv)
@@ -560,6 +619,7 @@ if __name__ == "__main__":
     dispatcher.add_handler(add_rotation_conv)
     dispatcher.add_handler(remove_rotation_conv)
     dispatcher.add_handler(done_rotation_conv)
+    dispatcher.add_handler(manual_rotation_conv)
 
     dispatcher.add_handler(CommandHandler("show_me_what_you_got", show_me_what_you_got))
     dispatcher.add_handler(CommandHandler("show_rotations", show_rotations))
