@@ -1,4 +1,5 @@
 from enum import Enum
+from copy import copy
 
 class Frequency(Enum):
     DAILY, WEEKLY, MONTHLY, YEARLY = range(4)
@@ -34,6 +35,18 @@ class Home:
     
     def __str__(self):
         return self.name
+    
+    def __copy__(self):
+        cp = type(self)(self.name)
+        cp.rooms = [copy(r) for r in self.rooms]
+        cp.members = [copy(m) for m in self.members]
+        cp.lists = {l_name : copy(l) for l in self.lists.items()}
+        
+        cp.rotations = {r_name : copy(r) for r in self.rotations}
+        for r_name, r in cp.rotations.items():
+            r._home = cp
+        
+        return cp
 
 class Room:
     def __init__(self, name: str):
@@ -42,12 +55,18 @@ class Room:
     def __str__(self):
         return self.name
 
+    def __copy__(self):
+        return type(self)(self.name)
+
 class Member:
     def __init__(self, displayname: str):
         self.displayname = displayname
     
     def __str__(self):
         return self.displayname
+    
+    def __copy__(self):
+        return type(self)(self.displayname)
 
 class List:
     def __init__(self, name: str):
@@ -58,8 +77,8 @@ class List:
         return self.name + ": " + " ".join(self.content)
 
 class Rotation:
-    def __init__(self, name: str):
-        self._home = None
+    def __init__(self, name: str, chat_id: int):
+        self._chat_id = chat_id
         self.name = name
         self.rooms = []
         self.members = []
@@ -69,3 +88,5 @@ class Rotation:
     
     def __str__(self):
         return "--Rooms: " + " ".join(self.rooms) + "\n--Members: " + " ".join(self.members) + "\n--Frequency: " + self.frequency
+    
+    

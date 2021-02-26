@@ -35,7 +35,7 @@ def run_rotation(context):
     rotation = context._dispatcher.chat_data[home.chat_id]["home"].rotations[rotation_name]
 
     completed = s.COMPLETED_ROTATIONS.format(" ".join(rotation.completed))
-    context.bot.send_message(chat_id=rotation._home.chat_id, text=completed)
+    context.bot.send_message(chat_id=rotation._chat_id, text=completed)
     rotation.completed = []
 
     rotation.offset = (rotation.offset + 1) % len(rotation.members)
@@ -43,7 +43,7 @@ def run_rotation(context):
     for room_number, room in enumerate(rotation.rooms):
         current += f" - {room}: @{rotation.members[(room_number + rotation.offset) % len(rotation.members)]}\n"
     
-    context.bot.send_message(chat_id=rotation._home.chat_id, text=s.CURRENT_ROTATIONS.format(rotation.name, current))
+    context.bot.send_message(chat_id=rotation._chat_id, text=s.CURRENT_ROTATIONS.format(rotation.name, current))
 
 
 
@@ -218,7 +218,7 @@ def add_rotation_check_name(update, context):
         context.bot.send_message(chat_id=update.effective_chat.id, text=s.ROTATION_EXISTS)
         return ConversationHandler.END
     else:
-        context.user_data["rotation"] = Rotation(name)
+        context.user_data["rotation"] = Rotation(name, update.effective_chat.id)
 
         keyboard = [[InlineKeyboardButton(member.displayname, callback_data=member.displayname) for member in context.chat_data["home"].members]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -290,7 +290,7 @@ def add_rotation_request_frequency_button(update, context):
     answer = int(update.callback_query.data)
     rotation = context.user_data["rotation"]
     rotation.frequency = Frequency(answer)
-    rotation._home = context.chat_data["home"]
+    rotation._chat_id = update.effective_chat.id
     context.chat_data["home"].rotations[rotation.name] = rotation
 
     context.bot.send_message(chat_id=update.effective_chat.id, text=s.ROTATION_REGISTERED)
@@ -339,7 +339,7 @@ def show_rotations(update, context):
         
         response += s.CURRENT_ROTATIONS.format(name, current) + '\n'
     
-    context.bot.send_message(chat_id=rotation._home.chat_id, text=response)
+    context.bot.send_message(chat_id=rotation._chat_id, text=response)
 
 def done_rotation_request_rotation(update, context):
     if context.chat_data["home"].rotations.keys():
@@ -409,7 +409,7 @@ def run_rotation_manually_button(update, context):
         rotation = context._dispatcher.chat_data[home.chat_id]["home"].rotations[rotation_name]
 
         completed = s.COMPLETED_ROTATIONS.format(" ".join(rotation.completed))
-        context.bot.send_message(chat_id=rotation._home.chat_id, text=completed)
+        context.bot.send_message(chat_id=rotation._chat_id, text=completed)
         rotation.completed = []
 
         rotation.offset = (rotation.offset + 1) % len(rotation.members)
